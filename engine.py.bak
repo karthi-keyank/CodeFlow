@@ -1,0 +1,173 @@
+from playwright.sync_api import sync_playwright
+from playwright._impl._errors import Error
+from ai import Ai
+import keyboard
+import threading
+import queue
+import time
+import re
+
+
+# ======================================================
+# FILTER LOGIC – REMOVE ONLY CONFIRMED JUNK
+# ======================================================
+def filter_page_text(raw_text: str) -> str:
+    lines = raw_text.splitlines()
+    output = []
+
+    # ---------- Regex patterns ----------
+    user_header_pattern = re.compile(r'^[A-Z ]+\s[A-Z]-\d{12}@vec$')
+    footer_user_pattern = re.compile(r'^\d{12}@vec$')
+    progress_line_pattern = re.compile(r'^[\d\s/]+$')
+    valid_date_pattern = re.compile(r'^\d{2}-[A-Za-z]{3}-\d{4}$')
+
+    # ---------- Fixed junk words ----------
+    junk_words = {
+        "ui-button", "save", "run",
+        "home", "reports", "profile", "help", "logout",
+    }
+
+    theme_words = {
+        "ambiance", "chaos", "clouds midnight", "cobalt",
+        "idle fingers", "krtheme", "merbivore", "merbivore soft",
+        "mono industrial", "monokai", "pastel on dark",
+        "solarized dark", "terminal", "tomorrow night",
+        "tomorrow night blue", "tomorrow night bright",
+        "tomorrow night 80s", "twilight", "vibrant ink",
+        "chrome", "clouds", "crimson editor", "dawn",
+        "dreamweaver", "eclipse", "github", "iplastic",
+        "solarized light", "textmate", "tomorrow", "xcode",
+        "kuroir", "katzenmilch", "sql server",
+    }
+
+    skip_next_line = False
+
+    for line in lines:
+        stripped = line.strip()
+        lower = stripped.lower()
+
+        # Skip "Valid Till:" + date
+        if lower == "valid till:":
+            skip_next_line = True
+            continue
+
+        if skip_next_line:
+            if valid_date_pattern.match(stripped):
+                skip_next_line = False
+                continue
+            skip_next_line = False
+
+        if not stripped:
+            continue
+
+        if user_header_pattern.match(stripped):
+            continue
+
+        if footer_user_pattern.match(stripped):
+            continue
+
+        if progress_line_pattern.match(stripped) and len(stripped) > 5:
+            continue
+
+        if lower in junk_words:
+            continue
+
+        if lower in theme_words:
+            continue
+
+        output.append(stripped)
+
+    return "\n".join(output)
+
+def format(text):
+    return text.replace("}", "")
+
+# ======================================================
+# PAGE TEXT EXTRACTOR
+# ======================================================
+class PageTextExtractor:
+    HOTKEY = "ctrl+shift+x"
+
+    def __init__(self):
+        self.hotkey_events = queue.Queue()
+        self.want_extract = False
+        self.extracting = False
+        self.running = True 
+        self.ai = Ai()
+
+    # ----------------------------
+    # Hotkey listener (OS-level)
+    # ----------------------------
+    def _listen_hotkey(self):
+        while self.running:
+            keyboard.wait(self.HOTKEY)
+            if not self.running:
+                break
+            self.hotkey_events.put(True)
+            time.sleep(0.4)  # debounce
+
+    def start_hotkey_listener(self):
+        threading.Thread(
+            target=self._listen_hotkey,
+            daemon=True
+        ).start()
+
+    # ----------------------------
+    # Safe extraction logic
+    # ----------------------------
+    def _extract_text_when_ready(self, page):
+        if self.extracting or page.is_closed():
+            return
+
+        self.extracting = True
+
+        try:
+            page.wait_for_load_state("networkidle", timeout=10000)
+            raw_text = page.inner_text("body")
+            filtered_text = filter_page_text(raw_text)
+            output = self.ai.write_code(filtered_text)
+            keyboard.write(format(output))
+            self.want_extract = False
+
+        except Error:
+            self.want_extract = True
+
+        finally:
+            self.extracting = False
+
+    # ----------------------------
+    # Main run loop
+    # ----------------------------
+    def run(self, start_url: str):
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(
+                    channel="msedge",
+                    headless=False
+                )
+
+                page = browser.new_page()
+                page.goto(start_url)
+
+                self.start_hotkey_listener()
+
+                print(f"Press {self.HOTKEY.upper()} to extract page text.")
+                print("Close the browser window (X) to exit.")
+
+                while self.running and not page.is_closed():
+                    if not self.hotkey_events.empty():
+                        self.hotkey_events.get()
+                        self.want_extract = True
+
+                    if self.want_extract and not self.extracting:
+                        self._extract_text_when_ready(page)
+
+                    time.sleep(0.05)
+
+        except KeyboardInterrupt:
+            self.running = False
+            self.want_extract = False
+            self.extracting = False
+        finally:
+            self.running = False
+            print("Exited cleanly.")
