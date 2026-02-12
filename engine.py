@@ -9,6 +9,7 @@ import re
 # ======================================================
 # FILTER LOGIC – REMOVE ONLY CONFIRMED JUNK
 # ======================================================
+
 def filter_page_text(raw_text: str) -> str:
     lines = raw_text.splitlines()
     output = []
@@ -70,10 +71,6 @@ def filter_page_text(raw_text: str) -> str:
     return "\n".join(output)
 
 
-def format(text):
-    return text.replace("}", "")
-
-
 # ======================================================
 # PAGE TEXT EXTRACTOR
 # ======================================================
@@ -88,7 +85,6 @@ class PageTextExtractor:
         self.extracting = False
         self.running = True
         self.want_extract = False
-
         self.ai = Ai()
 
         # Streaming buffer
@@ -133,8 +129,7 @@ class PageTextExtractor:
             filtered_text = filter_page_text(raw_text)
 
             output = self.ai.write_code(filtered_text)
-
-            self.ai_output = format(output)
+            self.ai_output = output
             self.write_index = 0
             self.want_extract = False
 
@@ -150,12 +145,13 @@ class PageTextExtractor:
     def run(self, start_url: str):
         try:
             with sync_playwright() as p:
-                browser = p.chromium.launch(
+                context = p.chromium.launch_persistent_context(
+                    user_data_dir="user_data",
                     channel="msedge",
-                    headless=False
+                    headless= False
                 )
 
-                page = browser.new_page()
+                page = context.new_page()
                 page.goto(start_url)
 
                 self.start_hotkey_listener()
@@ -179,14 +175,13 @@ class PageTextExtractor:
                             if self.write_index < len(self.ai_output):
                                 keyboard.write(self.ai_output[self.write_index])
                                 self.write_index += 1
-                                time.sleep(0.01)
                             else:
                                 # Finished writing
                                 self.state = "IDLE"
+                                self.delete_count = 0
                                 self.ai_output = ""
                                 self.write_index = 0
-
-                    time.sleep(0.01)
+                                
 
         except KeyboardInterrupt:
             self.running = False
