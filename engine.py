@@ -1,9 +1,9 @@
-from playwright.sync_api import sync_playwright
-from playwright._impl._errors import Error
+from playwright.sync_api import sync_playwright, Error
 from ai import Ai
 import keyboard
 import time
 import re
+import threading
 
 
 # ======================================================
@@ -72,8 +72,9 @@ def filter_page_text(raw_text: str) -> str:
 
 
 # ======================================================
-# PAGE TEXT EXTRACTOR
+# PAGE TEXT EXTRACTOR (MULTI TAB SAFE)
 # ======================================================
+
 class PageTextExtractor:
 
     START_KEY = "ctrl+shift+f8"
@@ -81,18 +82,20 @@ class PageTextExtractor:
     CONTINUE_KEY = "shift"
 
     def __init__(self):
-        self.state = "IDLE"          # IDLE | WRITING | PAUSED
+        self.state = "IDLE"
         self.extracting = False
         self.running = True
         self.want_extract = False
+
         self.ai = Ai()
 
-        # Streaming buffer
         self.ai_output = ""
         self.write_index = 0
 
+        self.context = None
+
     # ----------------------------
-    # Hotkeys
+    # HOTKEYS
     # ----------------------------
     def start_hotkey_listener(self):
         keyboard.add_hotkey(self.START_KEY, self._start_writing)
@@ -101,6 +104,7 @@ class PageTextExtractor:
 
     def _start_writing(self):
         if self.state == "IDLE":
+            print("Start triggered.")
             self.state = "WRITING"
             self.want_extract = True
             self.ai_output = ""
@@ -108,85 +112,135 @@ class PageTextExtractor:
 
     def _stop_writing(self):
         if self.state == "WRITING":
+            print("Paused.")
             self.state = "PAUSED"
 
     def _continue_writing(self):
         if self.state == "PAUSED":
+            print("Resumed.")
             self.state = "WRITING"
 
     # ----------------------------
-    # Extraction
+    # GET ACTIVE TAB (LAST OPENED)
     # ----------------------------
-    def _extract_text_when_ready(self, page):
-        if self.extracting or page.is_closed():
+    def get_active_page(self):
+        try:
+            pages = self.context.pages
+            if not pages:
+                return None
+
+            # last tab (index -1)
+            return pages[-1]
+
+        except Exception:
+            return None
+
+    # ----------------------------
+    # EXTRACTION
+    # ----------------------------
+    def extract_text(self, page):
+        if self.extracting:
             return
 
         self.extracting = True
 
         try:
+            if page.is_closed():
+                return
+
             page.wait_for_load_state("networkidle", timeout=10000)
+
             raw_text = page.inner_text("body")
             filtered_text = filter_page_text(raw_text)
 
             output = self.ai.write_code(filtered_text)
+
             self.ai_output = output
             self.write_index = 0
             self.want_extract = False
 
-        except Error:
-            self.want_extract = True  # retry next loop
+        except Error as e:
+            print("Extraction error:", e)
+            self.want_extract = True
+
+        except Exception as e:
+            print("Unexpected extraction error:", e)
+            self.want_extract = False
 
         finally:
             self.extracting = False
 
     # ----------------------------
-    # Main Loop
+    # MAIN LOOP
     # ----------------------------
-    def run(self, start_url: str):
+    def run(self, start_url: str | None = None):
+
         try:
             with sync_playwright() as p:
-                context = p.chromium.launch_persistent_context(
+
+                self.context = p.chromium.launch_persistent_context(
                     user_data_dir="user_data",
                     channel="msedge",
-                    headless= False
+                    headless=False
                 )
 
-                page = context.new_page()
-                page.goto(start_url)
+                if start_url:
+                    page = self.context.new_page()
+                    page.goto(start_url)
 
                 self.start_hotkey_listener()
 
-                print("CTRL+ALT+E → Start")
-                print("CTRL+ALT+S → Stop")
-                print("CTRL+ALT+D → Continue")
+                print("CTRL+SHIFT+F8 → Start")
+                print("CTRL → Pause")
+                print("SHIFT → Resume")
                 print("Close browser to exit.")
 
-                while self.running and not page.is_closed():
+                while self.running:
+
+                    pages = self.context.pages
+
+                    if not pages:
+                        print("All tabs closed. Exiting.")
+                        break
+
+                    active_page = self.get_active_page()
+
+                    if not active_page or active_page.is_closed():
+                        time.sleep(0.2)
+                        continue
 
                     if self.state == "WRITING":
 
-                        # If no output yet, extract
                         if self.want_extract and not self.extracting:
-                            self._extract_text_when_ready(page)
+                            self.extract_text(active_page)
 
-                        # If we have AI output, type progressively
                         elif self.ai_output:
 
                             if self.write_index < len(self.ai_output):
                                 keyboard.write(self.ai_output[self.write_index])
                                 self.write_index += 1
                             else:
-                                # Finished writing
+                                print("Finished writing.")
                                 self.state = "IDLE"
-                                self.delete_count = 0
                                 self.ai_output = ""
                                 self.write_index = 0
-                                
+
+                    time.sleep(0.01)
 
         except KeyboardInterrupt:
-            self.running = False
+            print("Keyboard interrupt detected.")
+
+        except Exception as e:
+            print("Fatal error:", e)
 
         finally:
             self.running = False
             keyboard.unhook_all_hotkeys()
+
+            try:
+                if self.context:
+                    self.context.close()
+            except:
+                pass
+
             print("Exited cleanly.")
