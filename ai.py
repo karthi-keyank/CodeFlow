@@ -2,6 +2,8 @@ import tkinter as tk
 from tkinter import messagebox
 from google import genai
 import time
+import json
+import os
 
 
 class Ai:
@@ -9,8 +11,7 @@ class Ai:
     def __init__(self):
         print("[AI] Initializing...")
 
-        # Load multiple API keys
-        self.api_keys = self.get_api_keys_from_gui()
+        self.api_keys = self.load_or_get_keys()
 
         if not self.api_keys:
             raise ValueError("No API keys provided.")
@@ -23,13 +24,13 @@ class Ai:
             "Only provide the required missing code fragment. "
             "Do not rewrite or reorder the program. "
             "Do not modify existing variables or structure. "
-            "If new variables are required, declare them and add dont add any comments"
+            "If new variables are required, declare them and do not add comments. "
             "Each statement must be on a separate line. "
-            "Do NOT insert line breaks inside (), [] "
+            "Do NOT insert line breaks inside (), []. "
             "Keep for(), while(), if() conditions in a single line. "
             "Use braces {} and semicolons normally. "
             "Do NOT use comments in code. "
-            "Try to mizimize the token usages"
+            "Minimize token usage. "
             "Do not collapse code into a single line. "
             "Do not indent any lines; every line must begin at column 0. "
             "Output only code."
@@ -38,64 +39,142 @@ class Ai:
         print("[AI] Ready")
 
     # ==========================================
-    # MULTIPLE API KEY GUI
+    # JSON HANDLING
     # ==========================================
-    def get_api_keys_from_gui(self):
-        key_entries = []
-        keys_collected = []
+    def load_keys_from_json(self):
+        if not os.path.exists("api_keys.json"):
+            return []
 
-        def add_key_field():
-            entry = tk.Entry(frame, width=50, show="*")
-            entry.pack(pady=3)
-            key_entries.append(entry)
+        try:
+            with open("api_keys.json", "r") as f:
+                data = json.load(f)
+                return data.get("keys", [])
+        except:
+            return []
+
+    def save_keys_to_json(self, keys):
+        with open("api_keys.json", "w") as f:
+            json.dump({"keys": keys}, f, indent=4)
+
+    # ==========================================
+    # GUI
+    # ==========================================
+    def load_or_get_keys(self):
+        existing_keys = self.load_keys_from_json()
+        keys_collected = existing_keys.copy()
+
+        root = tk.Tk()
+        root.title("Gemini API Manager")
+        root.geometry("500x380")
+        root.resizable(False, False)
+
+        # -----------------------------
+        # TOP INPUT SECTION
+        # -----------------------------
+        top_frame = tk.Frame(root)
+        top_frame.pack(pady=12, padx=15, fill="x")
+
+        tk.Label(top_frame, text="Enter API Key:").pack(anchor="w")
+
+        key_entry = tk.Entry(top_frame, show="*", width=60)
+        key_entry.pack(fill="x", pady=6)
+
+        # -----------------------------
+        # BUTTON ROW
+        # -----------------------------
+        button_frame = tk.Frame(root)
+        button_frame.pack(pady=5)
+
+        def add_key():
+            key = key_entry.get().strip()
+            if not key:
+                messagebox.showerror("Error", "Key cannot be empty.")
+                return
+
+            keys_collected.append(key)
+            key_entry.delete(0, tk.END)
+            refresh_list()
+
+        def delete_key(index):
+            keys_collected.pop(index)
+            refresh_list()
 
         def submit():
-            for entry in key_entries:
-                key = entry.get().strip()
-                if key:
-                    keys_collected.append(key)
-
             if not keys_collected:
                 messagebox.showerror("Error", "At least one API key required.")
                 return
-
+            self.save_keys_to_json(keys_collected)
             root.destroy()
 
-        root = tk.Tk()
-        root.title("Enter Gemini API Keys")
-        root.geometry("450x400")
-        root.resizable(False, False)
+        def skip():
+            if not keys_collected:
+                messagebox.showerror("Error", "No keys available.")
+                return
+            root.destroy()
 
-        tk.Label(root, text="Add one or more Gemini API Keys:").pack(pady=10)
+        tk.Button(button_frame, text="Add Key", width=14, command=add_key).pack(side="left", padx=6)
+        tk.Button(button_frame, text="Submit", width=14, command=submit).pack(side="left", padx=6)
+        tk.Button(button_frame, text="Skip", width=14, command=skip).pack(side="left", padx=6)
 
-        frame = tk.Frame(root)
-        frame.pack()
+        # -----------------------------
+        # LIST SECTION (SCROLLABLE)
+        # -----------------------------
+        list_container = tk.Frame(root)
+        list_container.pack(padx=15, pady=12, fill="both", expand=True)
 
-        add_key_field()
+        canvas = tk.Canvas(list_container, highlightthickness=0)
+        scrollbar = tk.Scrollbar(list_container, orient="vertical", command=canvas.yview)
 
-        tk.Button(root, text="Add Key", command=add_key_field).pack(pady=5)
-        tk.Button(root, text="Submit", command=submit).pack(pady=10)
+        scroll_frame = tk.Frame(canvas)
+
+        scroll_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        def refresh_list():
+            for widget in scroll_frame.winfo_children():
+                widget.destroy()
+
+            for i, key in enumerate(keys_collected):
+                row = tk.Frame(scroll_frame)
+                row.pack(fill="x", pady=4)
+
+                masked = key[:4] + "****" + key[-4:]
+
+                tk.Label(row, text=masked, anchor="w", width=45).pack(side="left")
+
+                tk.Button(
+                    row,
+                    text="Delete",
+                    width=8,
+                    command=lambda idx=i: delete_key(idx)
+                ).pack(side="right")
+
+        refresh_list()
 
         root.mainloop()
-
         return keys_collected
 
     # ==========================================
-    # GET CURRENT CLIENT
+    # CLIENT ROTATION
     # ==========================================
     def get_current_client(self):
         api_key = self.api_keys[self.current_key_index]
         return genai.Client(api_key=api_key)
 
-    # ==========================================
-    # INFINITE ROTATING FAILOVER
-    # ==========================================
     def write_code(self, input_text):
         print("[AI] Sending request to Gemini...")
 
         total_keys = len(self.api_keys)
 
-        while True:  # infinite retry loop
+        while True:
             try:
                 client = self.get_current_client()
 
@@ -104,19 +183,13 @@ class Ai:
                     contents=self.custom_prompt + "\n\n" + input_text
                 )
 
-                print("[AI] Success using key index:",
-                      self.current_key_index)
-
+                print("[AI] Success using key index:", self.current_key_index)
                 return response.text
 
             except Exception as e:
                 print(f"[AI] Key {self.current_key_index} failed:", e)
 
-                # Move to next key (circular rotation)
                 self.current_key_index = (self.current_key_index + 1) % total_keys
+                print("[AI] Switching to key index:", self.current_key_index)
 
-                print("[AI] Switching to key index:",
-                      self.current_key_index)
-
-                # Prevent CPU overload
                 time.sleep(1)
