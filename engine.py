@@ -1,9 +1,14 @@
-from playwright.sync_api import sync_playwright, Error
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import WebDriverException
+from webdriver_manager.chrome import ChromeDriverManager
+
 from ai import Ai
 import keyboard
 import time
 import re
-import threading
 
 
 # ======================================================
@@ -72,7 +77,7 @@ def filter_page_text(raw_text: str) -> str:
 
 
 # ======================================================
-# PAGE TEXT EXTRACTOR (MULTI TAB SAFE)
+# PAGE TEXT EXTRACTOR
 # ======================================================
 
 class PageTextExtractor:
@@ -92,7 +97,7 @@ class PageTextExtractor:
         self.ai_output = ""
         self.write_index = 0
 
-        self.context = None
+        self.driver = None
 
     # ----------------------------
     # HOTKEYS
@@ -125,12 +130,13 @@ class PageTextExtractor:
     # ----------------------------
     def get_active_page(self):
         try:
-            pages = self.context.pages
-            if not pages:
+            handles = self.driver.window_handles
+            if not handles:
                 return None
 
-            # last tab (index -1)
-            return pages[-1]
+            last_handle = handles[-1]
+            self.driver.switch_to.window(last_handle)
+            return self.driver
 
         except Exception:
             return None
@@ -138,19 +144,18 @@ class PageTextExtractor:
     # ----------------------------
     # EXTRACTION
     # ----------------------------
-    def extract_text(self, page):
+    def extract_text(self, driver):
         if self.extracting:
             return
 
         self.extracting = True
 
         try:
-            if page.is_closed():
-                return
+            time.sleep(1)  # simulate network idle
 
-            page.wait_for_load_state("networkidle", timeout=10000)
+            body = driver.find_element(By.TAG_NAME, "body")
+            raw_text = body.text
 
-            raw_text = page.inner_text("body")
             filtered_text = filter_page_text(raw_text)
 
             output = self.ai.write_code(filtered_text)
@@ -159,7 +164,7 @@ class PageTextExtractor:
             self.write_index = 0
             self.want_extract = False
 
-        except Error as e:
+        except WebDriverException as e:
             print("Extraction error:", e)
             self.want_extract = True
 
@@ -176,56 +181,55 @@ class PageTextExtractor:
     def run(self, start_url: str | None = None):
 
         try:
-            with sync_playwright() as p:
+            chrome_options = Options()
+            chrome_options.add_argument("--start-maximized")
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
 
-                self.context = p.chromium.launch_persistent_context(
-                    user_data_dir="user_data",
-                    channel="chrome",
-                    headless=False
-                )
+            service = Service(ChromeDriverManager().install())
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
 
-                if start_url:
-                    page = self.context.new_page()
-                    page.goto(start_url)
+            if start_url:
+                self.driver.get(start_url)
 
-                self.start_hotkey_listener()
+            self.start_hotkey_listener()
 
-                print("CTRL+SHIFT+F8 → Start")
-                print("CTRL → Pause")
-                print("SHIFT → Resume")
-                print("Close browser to exit.")
+            print("CTRL+SHIFT+F8 → Start")
+            print("CTRL → Pause")
+            print("SHIFT → Resume")
+            print("Close browser to exit.")
 
-                while self.running:
+            while self.running:
 
-                    pages = self.context.pages
+                handles = self.driver.window_handles
+                if not handles:
+                    print("All tabs closed. Exiting.")
+                    break
 
-                    if not pages:
-                        print("All tabs closed. Exiting.")
-                        break
+                active_page = self.get_active_page()
 
-                    active_page = self.get_active_page()
+                if not active_page:
+                    time.sleep(0.1)
+                    continue
 
-                    if not active_page or active_page.is_closed():
-                        time.sleep(0.2)
-                        continue
+                if self.state == "WRITING":
 
-                    if self.state == "WRITING":
+                    if self.want_extract and not self.extracting:
+                        self.extract_text(active_page)
 
-                        if self.want_extract and not self.extracting:
-                            self.extract_text(active_page)
+                    elif self.ai_output:
 
-                        elif self.ai_output:
+                        if self.write_index < len(self.ai_output):
+                            keyboard.write(self.ai_output[self.write_index])
+                            self.write_index += 1
+                        else:
+                            print("Finished writing.")
+                            self.state = "IDLE"
+                            self.ai_output = ""
+                            self.write_index = 0
 
-                            if self.write_index < len(self.ai_output):
-                                keyboard.write(self.ai_output[self.write_index])
-                                self.write_index += 1
-                            else:
-                                print("Finished writing.")
-                                self.state = "IDLE"
-                                self.ai_output = ""
-                                self.write_index = 0
-
-                    time.sleep(0.01)
+                time.sleep(0.0001)
 
         except KeyboardInterrupt:
             print("Keyboard interrupt detected.")
@@ -235,11 +239,15 @@ class PageTextExtractor:
 
         finally:
             self.running = False
-            keyboard.unhook_all_hotkeys()
 
             try:
-                if self.context:
-                    self.context.close()
+                keyboard.unhook_all()
+            except:
+                pass
+
+            try:
+                if self.driver:
+                    self.driver.quit()
             except:
                 pass
 

@@ -25,6 +25,7 @@ class Ai:
             "Do not rewrite or reorder the program. "
             "Do not modify existing variables or structure. "
             "If new variables are required, declare them and do not add comments. "
+            "If no code is provided, generate a complete standalone C program including all required #include directives and a main() function."
             "Each statement must be on a separate line. "
             "Do NOT insert line breaks inside (), []. "
             "Keep for(), while(), if() conditions in a single line. "
