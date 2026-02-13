@@ -180,7 +180,7 @@ class PageTextExtractor:
 
                 self.context = p.chromium.launch_persistent_context(
                     user_data_dir="user_data",
-                    channel="msedge",
+                    channel="chrome",
                     headless=False
                 )
 

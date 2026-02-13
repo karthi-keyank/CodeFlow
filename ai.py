@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import messagebox
 from google import genai
+import time
 
 
 class Ai:
@@ -8,13 +9,13 @@ class Ai:
     def __init__(self):
         print("[AI] Initializing...")
 
-        # Always get API key from GUI
-        self.api_key = self.get_api_key_from_gui()
+        # Load multiple API keys
+        self.api_keys = self.get_api_keys_from_gui()
 
-        print("[AI] API Key loaded")
+        if not self.api_keys:
+            raise ValueError("No API keys provided.")
 
-        # Create client
-        self.client = genai.Client(api_key=self.api_key)
+        self.current_key_index = 0
         self.model = "models/gemini-2.5-flash"
 
         self.custom_prompt = (
@@ -36,54 +37,86 @@ class Ai:
 
         print("[AI] Ready")
 
-    # -----------------------------------
-    # GUI API KEY INPUT
-    # -----------------------------------
-    def get_api_key_from_gui(self):
-        key_holder = {"value": None}
+    # ==========================================
+    # MULTIPLE API KEY GUI
+    # ==========================================
+    def get_api_keys_from_gui(self):
+        key_entries = []
+        keys_collected = []
+
+        def add_key_field():
+            entry = tk.Entry(frame, width=50, show="*")
+            entry.pack(pady=3)
+            key_entries.append(entry)
 
         def submit():
-            entered_key = entry.get().strip()
-            if not entered_key:
-                messagebox.showerror("Error", "API key cannot be empty.")
+            for entry in key_entries:
+                key = entry.get().strip()
+                if key:
+                    keys_collected.append(key)
+
+            if not keys_collected:
+                messagebox.showerror("Error", "At least one API key required.")
                 return
 
-            key_holder["value"] = entered_key
             root.destroy()
 
         root = tk.Tk()
-        root.title("Enter Gemini API Key")
-        root.geometry("400x150")
+        root.title("Enter Gemini API Keys")
+        root.geometry("450x400")
         root.resizable(False, False)
 
-        tk.Label(root, text="Paste your Gemini API Key:").pack(pady=10)
+        tk.Label(root, text="Add one or more Gemini API Keys:").pack(pady=10)
 
-        entry = tk.Entry(root, width=50, show="*")  # hides key like password
-        entry.pack(pady=5)
-        entry.focus()
+        frame = tk.Frame(root)
+        frame.pack()
 
+        add_key_field()
+
+        tk.Button(root, text="Add Key", command=add_key_field).pack(pady=5)
         tk.Button(root, text="Submit", command=submit).pack(pady=10)
 
         root.mainloop()
 
-        if not key_holder["value"]:
-            raise ValueError("API key not provided.")
+        return keys_collected
 
-        return key_holder["value"]
+    # ==========================================
+    # GET CURRENT CLIENT
+    # ==========================================
+    def get_current_client(self):
+        api_key = self.api_keys[self.current_key_index]
+        return genai.Client(api_key=api_key)
 
-    # -----------------------------------
+    # ==========================================
+    # INFINITE ROTATING FAILOVER
+    # ==========================================
     def write_code(self, input_text):
         print("[AI] Sending request to Gemini...")
 
-        try:
-            response = self.client.models.generate_content(
-                model=self.model,
-                contents=self.custom_prompt + "\n\n" + input_text
-            )
+        total_keys = len(self.api_keys)
 
-            print("[AI] Response received")
-            return response.text
+        while True:  # infinite retry loop
+            try:
+                client = self.get_current_client()
 
-        except Exception as e:
-            print("[AI] Error:", e)
-            return ""
+                response = client.models.generate_content(
+                    model=self.model,
+                    contents=self.custom_prompt + "\n\n" + input_text
+                )
+
+                print("[AI] Success using key index:",
+                      self.current_key_index)
+
+                return response.text
+
+            except Exception as e:
+                print(f"[AI] Key {self.current_key_index} failed:", e)
+
+                # Move to next key (circular rotation)
+                self.current_key_index = (self.current_key_index + 1) % total_keys
+
+                print("[AI] Switching to key index:",
+                      self.current_key_index)
+
+                # Prevent CPU overload
+                time.sleep(1)
