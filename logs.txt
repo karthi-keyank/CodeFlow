@@ -1,0 +1,63 @@
+[2026-02-15 21:38:58][INFO] Application started
+[2026-02-15 21:38:58][INFO] PageTextExtractor initialized
+[2026-02-15 21:39:01][SUCCESS] API keys saved to api_keys.json
+[2026-02-15 21:39:01][INFO] AI Initialized
+[2026-02-15 21:39:05][SUCCESS] Edge driver started
+[2026-02-15 21:39:06][INFO] Hotkeys registered
+[2026-02-15 21:39:10][ERROR] Failed to get active tab: Message: no such window: target window already closed
+from unknown error: web view not found
+  (Session info: MicrosoftEdge=145.0.3800.58)
+Stacktrace:
+Symbols not available. Dumping unresolved backtrace:
+	0x7ff7e7eb67b5
+	0x7ff7e7eb6814
+	0x7ff7e81fad4a
+	0x7ff7e7beda9d
+	0x7ff7e7c78d96
+	0x7ff7e7c81290
+	0x7ff7e7c49a1c
+	0x7ff7e7c48c76
+	0x7ff7e7c49843
+	0x7ff7e7d10474
+	0x7ff7e7d0c913
+	0x7ff7e7d1cfd3
+	0x7ff7e7ed0e98
+	0x7ff7e7ed9776
+	0x7ff7e7ebddf4
+	0x7ff7e7ebdf39
+	0x7ff7e7eabd72
+	0x7fffb1a4e8d7
+	0x7fffb228c48c
+
+[2026-02-15 21:39:10][ERROR] Fatal error: Message: invalid session id: session deleted as the browser has closed the connection
+from disconnected: Unable to receive message from renderer
+  (Session info: MicrosoftEdge=145.0.3800.58); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#invalidsessionidexception
+Stacktrace:
+Symbols not available. Dumping unresolved backtrace:
+	0x7ff7e7eb67b5
+	0x7ff7e7eb6814
+	0x7ff7e81fad4a
+	0x7ff7e7bfd947
+	0x7ff7e7bfb7e1
+	0x7ff7e7bfc03f
+	0x7ff7e7c0b2f3
+	0x7ff7e7bed561
+	0x7ff7e7c81e79
+	0x7ff7e7c49a1c
+	0x7ff7e7c48c76
+	0x7ff7e7c49843
+	0x7ff7e7d10474
+	0x7ff7e7d0c913
+	0x7ff7e7d1cfd3
+	0x7ff7e7ed0e98
+	0x7ff7e7ed9776
+	0x7ff7e7ebddf4
+	0x7ff7e7ebdf39
+	0x7ff7e7eabd72
+	0x7fffb1a4e8d7
+	0x7fffb228c48c
+
+[2026-02-15 21:39:10][INFO] Hotkeys unhooked
+[2026-02-15 21:39:12][INFO] Driver closed
+[2026-02-15 21:39:12][INFO] Exited cleanly
+[2026-02-15 21:39:12][INFO] Application terminated

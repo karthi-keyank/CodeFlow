@@ -1,9 +1,7 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import WebDriverException
-from webdriver_manager.chrome import ChromeDriverManager
 
 from ai import Ai
 from logger import Logger
@@ -11,6 +9,8 @@ from logger import Logger
 import keyboard
 import time
 import re
+import os
+import shutil
 
 
 # ======================================================
@@ -105,6 +105,23 @@ class PageTextExtractor:
         self.driver = None
 
     # ----------------------------
+    # DRIVER CREATION (AUTO VERSION SAFE)
+    # ----------------------------
+
+    def create_driver(self):
+
+        chrome_options = Options()
+        chrome_options.add_argument("--start-maximized")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+
+        # 🔥 Selenium 4.10+ auto driver management
+        driver = webdriver.Chrome(options=chrome_options)
+
+        return driver
+
+    # ----------------------------
     # HOTKEYS
     # ----------------------------
 
@@ -196,15 +213,7 @@ class PageTextExtractor:
     def run(self, start_url: str | None = None):
 
         try:
-            chrome_options = Options()
-            chrome_options.add_argument("--start-maximized")
-            chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-
-            service = Service(ChromeDriverManager().install())
-            self.driver = webdriver.Chrome(service=service, options=chrome_options)
-
+            self.driver = self.create_driver()
             self.logger.log("SUCCESS", "Chrome driver started")
 
             if start_url:
