@@ -6,6 +6,8 @@ from selenium.common.exceptions import WebDriverException
 from webdriver_manager.chrome import ChromeDriverManager
 
 from ai import Ai
+from logger import Logger
+
 import keyboard
 import time
 import re
@@ -92,6 +94,9 @@ class PageTextExtractor:
         self.running = True
         self.want_extract = False
 
+        self.logger = Logger()
+        self.logger.log("INFO", "PageTextExtractor initialized")
+
         self.ai = Ai()
 
         self.ai_output = ""
@@ -102,14 +107,16 @@ class PageTextExtractor:
     # ----------------------------
     # HOTKEYS
     # ----------------------------
+
     def start_hotkey_listener(self):
         keyboard.add_hotkey(self.START_KEY, self._start_writing)
         keyboard.add_hotkey(self.STOP_KEY, self._stop_writing)
         keyboard.add_hotkey(self.CONTINUE_KEY, self._continue_writing)
+        self.logger.log("INFO", "Hotkeys registered")
 
     def _start_writing(self):
         if self.state == "IDLE":
-            print("Start triggered.")
+            self.logger.log("INFO", "Start triggered")
             self.state = "WRITING"
             self.want_extract = True
             self.ai_output = ""
@@ -117,17 +124,18 @@ class PageTextExtractor:
 
     def _stop_writing(self):
         if self.state == "WRITING":
-            print("Paused.")
+            self.logger.log("WARNING", "Paused writing")
             self.state = "PAUSED"
 
     def _continue_writing(self):
         if self.state == "PAUSED":
-            print("Resumed.")
+            self.logger.log("INFO", "Resumed writing")
             self.state = "WRITING"
 
     # ----------------------------
-    # GET ACTIVE TAB (LAST OPENED)
+    # GET ACTIVE TAB
     # ----------------------------
+
     def get_active_page(self):
         try:
             handles = self.driver.window_handles
@@ -138,25 +146,29 @@ class PageTextExtractor:
             self.driver.switch_to.window(last_handle)
             return self.driver
 
-        except Exception:
+        except Exception as e:
+            self.logger.log("ERROR", f"Failed to get active tab: {str(e)}")
             return None
 
     # ----------------------------
     # EXTRACTION
     # ----------------------------
+
     def extract_text(self, driver):
         if self.extracting:
             return
 
         self.extracting = True
+        self.logger.log("INFO", "Starting text extraction")
 
         try:
-            time.sleep(1)  # simulate network idle
+            time.sleep(1)
 
             body = driver.find_element(By.TAG_NAME, "body")
             raw_text = body.text
 
             filtered_text = filter_page_text(raw_text)
+            self.logger.log("INFO", "Page text filtered successfully")
 
             output = self.ai.write_code(filtered_text)
 
@@ -164,12 +176,14 @@ class PageTextExtractor:
             self.write_index = 0
             self.want_extract = False
 
+            self.logger.log("SUCCESS", "AI response received")
+
         except WebDriverException as e:
-            print("Extraction error:", e)
+            self.logger.log("ERROR", f"WebDriver extraction error: {str(e)}")
             self.want_extract = True
 
         except Exception as e:
-            print("Unexpected extraction error:", e)
+            self.logger.log("ERROR", f"Unexpected extraction error: {str(e)}")
             self.want_extract = False
 
         finally:
@@ -178,6 +192,7 @@ class PageTextExtractor:
     # ----------------------------
     # MAIN LOOP
     # ----------------------------
+
     def run(self, start_url: str | None = None):
 
         try:
@@ -190,21 +205,19 @@ class PageTextExtractor:
             service = Service(ChromeDriverManager().install())
             self.driver = webdriver.Chrome(service=service, options=chrome_options)
 
+            self.logger.log("SUCCESS", "Chrome driver started")
+
             if start_url:
                 self.driver.get(start_url)
+                self.logger.log("INFO", f"Opened URL: {start_url}")
 
             self.start_hotkey_listener()
-
-            print("CTRL+SHIFT+F8 → Start")
-            print("CTRL → Pause")
-            print("SHIFT → Resume")
-            print("Close browser to exit.")
 
             while self.running:
 
                 handles = self.driver.window_handles
                 if not handles:
-                    print("All tabs closed. Exiting.")
+                    self.logger.log("WARNING", "All tabs closed")
                     break
 
                 active_page = self.get_active_page()
@@ -224,7 +237,7 @@ class PageTextExtractor:
                             keyboard.write(self.ai_output[self.write_index])
                             self.write_index += 1
                         else:
-                            print("Finished writing.")
+                            self.logger.log("SUCCESS", "Finished writing output")
                             self.state = "IDLE"
                             self.ai_output = ""
                             self.write_index = 0
@@ -232,23 +245,25 @@ class PageTextExtractor:
                 time.sleep(0.0001)
 
         except KeyboardInterrupt:
-            print("Keyboard interrupt detected.")
+            self.logger.log("WARNING", "Keyboard interrupt detected")
 
         except Exception as e:
-            print("Fatal error:", e)
+            self.logger.log("ERROR", f"Fatal error: {str(e)}")
 
         finally:
             self.running = False
 
             try:
                 keyboard.unhook_all()
+                self.logger.log("INFO", "Hotkeys unhooked")
             except:
                 pass
 
             try:
                 if self.driver:
                     self.driver.quit()
+                    self.logger.log("INFO", "Driver closed")
             except:
                 pass
 
-            print("Exited cleanly.")
+            self.logger.log("INFO", "Exited cleanly")
